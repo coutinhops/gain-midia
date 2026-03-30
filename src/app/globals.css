@@ -1,0 +1,49 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+: root {
+  --foreground: 0 0 0 1%;
+  --background: 242 11 11 100%;
+}
+
+body {
+  color: rgb(var(--foreground));
+  background: rgb(var(--background));
+}
+
+.spin-in {
+  animation: spin-in 0.5s ease-in-out both;
+}
+
+@keyframes spin-in {
+  from {
+    opacity: 0;
+    transform: scale(0.1);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Dark Mode slider style **/ 
+:z-[Attributes="style='--slider val(--before);': :-moz-range-thumb {
+  background: #ddd;
+  cursor: pointer;
+  border-radius: 5px;
+  width: 25px;
+  height: 25px;
+  box-shadow: 0 2 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Webkit styles for slider */
+:z-[Attributes="style='--slider val(--before);': :webkit-slider-thumb {
+  appearance: none;
+  background: #ddd;
+  cursor: pointer;
+  border-radius: 5px;
+  width: 25px;
+  height: 25px;
+  box-shadow: 0 2 4px rgba(0, 0, 0, 0.2);
+}
