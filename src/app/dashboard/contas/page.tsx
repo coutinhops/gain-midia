@@ -1,0 +1,51 @@
+'use client';
+
+import { useEffect, useState } from 'react'; 
+import Header from '@/components/Header';
+import PeriodFilter from '@/components/PeriodFilter';
+import MetricCard from '@/components/MetricCard';
+import ErrorCard from '@/components/ErrorCard';
+
+export default function ContasPage() {
+  const [accounts, setAccounts] = useState([]);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    fetch('/api/user-config')
+      .then(res => res.json())
+      .then(data => {setAccounts(data.metaAccounts || [])})
+      .catch(err => setError('Failed to load accounts'));
+  }, []);
+
+  if (!accounts || accounts.length === 0) {
+    return (
+      <div className="space-y-6">
+        <PeriodFilter />
+        <ErrorCard title="Regulat√™ncia" message="Entre na configura√ß√£o de Meta para adicionar contas" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      <PeriodFilter />
+      <div className="grid grid-cols-1/md:2 gap-4">
+  
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+    
+  Ωë•ÿ¯(ÄÄÄÄ(ÄÄÄÄ(ÄÄÄÄ(ÄÄÄÄ(ÄÄÄÄ(ÄÄÄÄ(ààº/div>
+  (ùs
+
