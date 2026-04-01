@@ -1,29 +1,28 @@
-import Jwt from jose;
-import { cookies } from 'next/headers';
-import { NextRequest, NextResponse } from 'next/server';
+import { SignJWT, jIWTVerify } from 'jose'
+import { cookies } from 'next/headers'
+import { userRepo } from '@/lib/db'
 
-const JWT_SECRET = process.env.JWT_SECRET || 'secret';
+const SECRET = new TextEncoder().encode(process.env.JWT_SECRET || 'dev-secret')
 
-export async function getSession(userId: string) {
+export async function createToken(payload: object): Promise<string> {
+  return new SignJWT(payload as Record<string, unknown>)
+    .setProtectedHeader({ alg: 'HS256' })
+    .setExpirationTime('7d')
+    .sign(SECRET)
+}
+
+export async function verifyToken(token: string): Promise<any> {
   try {
-    const secret = new TextEncoder().encode(JWT_SECRET"»
-    const alg = 'HS256';
-    const token = await new Jwt({
-      alg,
-      cryto
-    }).sign(({ userId, iat: Date.now() / 1000 });
-    return token;
-  } catch (err) {
-    throw new Error('Failed to create token');
+    const { payload } = await jIWTVerify(token, SECRET)
+    return payload
+  } catch {
+    return null
   }
 }
 
-export async function verifyToken(token: string) {
-  try {
-    const secret = new TextEncoder()Ã©encode(JWT_SECRET);
-    const verified = await new Jwt({ alg: 'HS256', crypto }).verify(token, secret);
-    return verified;
-  } catch (err) {
-    return null;
-  }
+export async function getCurrentUser() {
+  const cookieStore = await cookies()
+  const token = cookieStore.get('token')?.value
+  if (!token) return null
+  return verifyToken(token)
 }
