@@ -1,27 +1,43 @@
 export const META_API_BASE = 'https://graph.facebook.com/v19.0'
 
-// ─── Lead Action Types ────────────────────────────────────────────────────────
-// Priority-based lead counting to match Meta Ads Manager (Gerenciador).
-// omni_lead is Meta's cross-channel DEDUPLICATED total — it already contains
-// `lead`, `offsite_conversion.fb_pixel_lead`, `onsite_web_lead` etc.
-// Summing omni_lead + lead causes double-counting.
+// ─── Lead / Results counting — matches Meta Ads Manager "Resultados" column ──
+//
+// How Meta Ads Manager computes "Resultados":
+//   • Lead Ads campaigns       → action_type: 'lead'
+//   • Click-to-WhatsApp / Msgs → action_type: 'onsite_conversion.messaging_conversation_started_7d'
+//                                + 'onsite_conversion.messaging_first_reply'
+//   • Pixel conversion         → action_type: 'offsite_conversion.fb_pixel_lead'
+//
+// When an account runs both Lead Ads AND messaging campaigns the Gerenciador
+// shows the SUM of all campaign results — so we must do the same.
+// NOTE: do NOT include omni_lead together with 'lead' — omni_lead already
+//       aggregates lead + pixel + onsite, causing double-counting.
 export function countLeads(actions: Array<{ action_type: string; value: string }> = []): number {
   const map: Record<string, number> = {}
   for (const a of actions) {
     map[a.action_type] = (map[a.action_type] || 0) + (Number(a.value) || 0)
   }
 
-  // 1. omni_lead = Meta's deduplicated total (best match to Gerenciador "Leads")
-  if (map['omni_lead'] > 0) return map['omni_lead']
+  // Lead Ads form fills (primary result for Lead Generation campaigns)
+  const leadForms = map['lead'] || 0
 
-  // 2. lead = native Lead Ads form fills (most common for clinics)
-  if (map['lead'] > 0) return map['lead']
+  // WhatsApp / Messenger conversations (primary result for Messages campaigns)
+  // Both types appear in "Resultados" when the account runs messaging campaigns
+  const msgConversations = map['onsite_conversion.messaging_conversation_started_7d'] || 0
+  const msgFirstReply    = map['onsite_conversion.messaging_first_reply'] || 0
+  const messaging = msgConversations + msgFirstReply
 
-  // 3. Pixel-based lead conversion from website
+  // If we have explicit results from either type, sum them (different campaign objectives)
+  if (leadForms > 0 || messaging > 0) return leadForms + messaging
+
+  // Fallback for pixel-based conversions (website lead events)
   if (map['offsite_conversion.fb_pixel_lead'] > 0) return map['offsite_conversion.fb_pixel_lead']
 
-  // 4. On-site web lead (Instant Experience forms)
+  // Fallback for on-site web lead (Instant Experience)
   if (map['onsite_web_lead'] > 0) return map['onsite_web_lead']
+
+  // Last resort: Meta's deduplicated cross-channel total
+  if (map['omni_lead'] > 0) return map['omni_lead']
 
   return 0
 }
@@ -37,11 +53,11 @@ export interface MetricsInput {
 }
 
 export interface Metrics extends MetricsInput {
-  ctr: number   // clicks / impressions * 100
-  cpc: number   // spend / clicks
-  cpm: number   // spend / impressions * 1000
-  cpl: number   // spend / leads
-  leadRate: number // leads / clicks * 100
+  ctr: number
+  cpc: number
+  cpm: number
+  cpl: number
+  leadRate: number
 }
 
 export function calcMetrics(raw: MetricsInput): Metrics {
@@ -97,10 +113,10 @@ export interface PlanConfig {
   invTotal: number
   invMin: number
   invMax: number
-  googleAds: number      // 1 = uses Google Ads, 0 = only Meta
-  topoRef: number        // reference budget for top-of-funnel
-  meioRef: number        // reference budget for mid-funnel
-  fundoRef: number       // reference budget for bottom-of-funnel
+  googleAds: number
+  topoRef: number
+  meioRef: number
+  fundoRef: number
 }
 
 export const PLANS: Record<PlanKey, PlanConfig> = {
@@ -141,18 +157,18 @@ export function classifyObjective(objective: string): 'topo' | 'meio' | 'fundo' 
   const obj = objective?.toUpperCase() || ''
   if (['REACH', 'BRAND_AWARENESS', 'OUTCOME_AWARENESS'].includes(obj)) return 'topo'
   if (['OUTCOME_LEADS', 'LEAD_GENERATION', 'CONVERSIONS', 'OUTCOME_SALES', 'MESSAGES'].includes(obj)) return 'fundo'
-  return 'meio'  // OUTCOME_ENGAGEMENT and others
+  return 'meio'
 }
 
 // ─── Ad Classification ────────────────────────────────────────────────────────
 export type AdStatus = 'winner' | 'potencial' | 'investigate' | 'kill' | 'other'
 
 export function classifyAd(ctr: number, cpl: number, spend: number, cplTarget: number): AdStatus {
-  if (ctr >= 2 && cpl <= cplTarget)           return 'winner'      // escalar com segurança
-  if (ctr >= 1.5 && cpl <= cplTarget * 1.2)   return 'potencial'   // otimizar pós-clique
-  if (ctr >= 1.2)                              return 'investigate' // revisar página/formulário
-  if (spend >= 2)                              return 'kill'        // candidato à pausa
-  return 'other'                                                     // em análise
+  if (ctr >= 2 && cpl <= cplTarget)           return 'winner'
+  if (ctr >= 1.5 && cpl <= cplTarget * 1.2)   return 'potencial'
+  if (ctr >= 1.2)                              return 'investigate'
+  if (spend >= 2)                              return 'kill'
+  return 'other'
 }
 
 export const AD_STATUS_LABELS: Record<AdStatus, string> = {
@@ -172,21 +188,16 @@ export function scoreTone(score: number): BenchmarkTone {
   return 'bad'
 }
 
-// Check a metric value against min/max benchmarks with 30% tolerance
 export function benchmarkCheck(value: number, min: number, max: number): BenchmarkTone {
   if (value >= min * 0.7) return 'ok'
   if (value <= max * 1.3) return 'warn'
   return 'bad'
 }
 
-// Audit section weights (structural 40%, performance 60%)
 export const AUDIT_WEIGHTS = {
-  // Structural (sum = 40% of total weight)
-  activeVolume: 15,     // active campaigns/adsets/ads count
-  objectives: 20,       // correct campaign objectives
-  zombieAdsets: 15,     // adsets spending with zero leads
-
-  // Performance (sum = 60% of total weight)
+  activeVolume: 15,
+  objectives: 20,
+  zombieAdsets: 15,
   cpm: 15,
   ctr: 15,
   cpc: 15,
@@ -194,7 +205,6 @@ export const AUDIT_WEIGHTS = {
   frequency: 15,
 }
 
-// Composite score: 40% structural + 60% performance (0-100 scale)
 export function calcAuditScore(structuralScore: number, performanceScore: number): number {
   return Math.round(0.4 * structuralScore + 0.6 * performanceScore)
 }
@@ -210,7 +220,6 @@ export function auditScoreLabel(score: number, type: 'structural' | 'performance
     if (score >= 60) return 'Dentro da faixa'
     return 'Crítico'
   }
-  // final
   if (score >= 80) return 'Saudável'
   if (score >= 60) return 'Atenção'
   return 'Crítico'
