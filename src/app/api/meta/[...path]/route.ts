@@ -34,6 +34,24 @@ async function handler(req: NextRequest, { params }: { params: { path: string[] 
     if (!metaUrl.searchParams.has('action_report_time')) {
       metaUrl.searchParams.set('action_report_time', 'mixed')
     }
+
+    // Auto-include action_values in fields when actions is already requested.
+    // action_values is needed to compute revenue-based metrics correctly.
+    const fields = metaUrl.searchParams.get('fields') || ''
+    if (fields.includes('actions') && !fields.includes('action_values')) {
+      metaUrl.searchParams.set('fields', fields + ',action_values')
+    }
+
+    // For sub-account levels (campaign/adset/ad) add effective_status filter
+    // so only ACTIVE and PAUSED objects are included — matching the Gerenciador
+    // default view which excludes DELETED and ARCHIVED objects.
+    const level = metaUrl.searchParams.get('level') || ''
+    if (['campaign', 'adset', 'ad'].includes(level) && !metaUrl.searchParams.has('filtering')) {
+      metaUrl.searchParams.set(
+        'filtering',
+        JSON.stringify([{ field: 'effective_status', operator: 'IN', value: ['ACTIVE', 'PAUSED'] }])
+      )
+    }
   }
 
   const metaRes = await fetch(metaUrl.toString())
