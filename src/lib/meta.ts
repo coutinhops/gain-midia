@@ -1,22 +1,29 @@
 export const META_API_BASE = 'https://graph.facebook.com/v19.0'
 
 // ─── Lead Action Types ────────────────────────────────────────────────────────
-// All action types recognised as leads by the Meta API (same set used in source)
-export const LEAD_ACTION_TYPES = new Set([
-  'lead',
-  'onsite_conversion.lead_grouped',
-  'onsite_web_lead',
-  'omni_lead',
-  'offsite_conversion.fb_pixel_lead',
-  'submit_application',
-  'contact',
-])
-
-// Extract total lead count from a Meta `actions` array
+// Priority-based lead counting to match Meta Ads Manager (Gerenciador).
+// omni_lead is Meta's cross-channel DEDUPLICATED total — it already contains
+// `lead`, `offsite_conversion.fb_pixel_lead`, `onsite_web_lead` etc.
+// Summing omni_lead + lead causes double-counting.
 export function countLeads(actions: Array<{ action_type: string; value: string }> = []): number {
-  return actions
-    .filter(a => LEAD_ACTION_TYPES.has(a.action_type))
-    .reduce((sum, a) => sum + (Number(a.value) || 0), 0)
+  const map: Record<string, number> = {}
+  for (const a of actions) {
+    map[a.action_type] = (map[a.action_type] || 0) + (Number(a.value) || 0)
+  }
+
+  // 1. omni_lead = Meta's deduplicated total (best match to Gerenciador "Leads")
+  if (map['omni_lead'] > 0) return map['omni_lead']
+
+  // 2. lead = native Lead Ads form fills (most common for clinics)
+  if (map['lead'] > 0) return map['lead']
+
+  // 3. Pixel-based lead conversion from website
+  if (map['offsite_conversion.fb_pixel_lead'] > 0) return map['offsite_conversion.fb_pixel_lead']
+
+  // 4. On-site web lead (Instant Experience forms)
+  if (map['onsite_web_lead'] > 0) return map['onsite_web_lead']
+
+  return 0
 }
 
 // ─── Metrics Calculator ───────────────────────────────────────────────────────
