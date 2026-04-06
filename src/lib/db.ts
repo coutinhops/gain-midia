@@ -9,10 +9,8 @@ let db: Database.Database | null = null
 
 export function getDb(): Database.Database {
   if (!db) {
-    // Ensure data directory exists
     const dir = path.dirname(DB_PATH)
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true })
-
     db = new Database(DB_PATH)
     db.pragma('journal_mode = WAL')
     db.pragma('foreign_keys = ON')
@@ -55,7 +53,6 @@ function initSchema(db: Database.Database) {
 function seedAdmin(db: Database.Database) {
   const count = (db.prepare('SELECT COUNT(*) as c FROM users').get() as { c: number }).c
   if (count === 0) {
-    const { v4: uuidv4 } = require('crypto')
     const id = require('crypto').randomUUID()
     const email = process.env.ADMIN_EMAIL || 'admin@oralunic.com'
     const name = process.env.ADMIN_NAME || 'Administrador'
@@ -66,20 +63,6 @@ function seedAdmin(db: Database.Database) {
       .run(id, email, name, hash)
 
     db.prepare(`INSERT INTO user_configs (user_id) VALUES (?)`).run(id)
-
-    // Seed default accounts (matching the original site)
-    const accounts = [
-      { slug: 'ou-jardins', name: 'Jardins', color: '#00c4a0' },
-      { slug: 'ou-barra', name: 'Barra', color: '#00c4a0' },
-      { slug: 'ou-savassi', name: 'Savassi', color: '#f59e0b' },
-      { slug: 'ou-goiania', name: 'Goiânia', color: '#f59e0b' },
-      { slug: 'ou-porto-alegre', name: 'Porto Alegre', color: '#f59e0b' },
-      { slug: 'ou-salvador', name: 'Salvador', color: '#f59e0b' },
-    ]
-    const insertAccount = db.prepare(`INSERT OR IGNORE INTO accounts (id, slug, name, color) VALUES (?, ?, ?, ?)`)
-    for (const acc of accounts) {
-      insertAccount.run(require('crypto').randomUUID(), acc.slug, acc.name, acc.color)
-    }
 
     console.log(`[DB] Admin user created: ${email}`)
   }
@@ -166,15 +149,24 @@ export const accountRepo = {
       VALUES (?, ?, ?, ?, '#00c4a0')
       ON CONFLICT(id) DO UPDATE SET
         name = excluded.name,
-        meta_account_id = excluded.meta_account_id
-    `)
-    const slugUpsert = getDb().prepare(`
-      UPDATE accounts SET slug = ? WHERE id = ? AND (slug IS NULL OR slug = '')
+        meta_account_id = excluded.meta_account_id,
+        slug = excluded.slug
     `)
     const tx = getDb().transaction(() => {
       for (const acc of metaAccounts) {
-        const slug = acc.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || acc.id
-        upsert.run(acc.id, slug, acc.name, acc.id)
+        // Generate slug: name-based + unique account ID suffix to avoid UNIQUE constraint conflicts
+        const base = acc.name
+          .toLowerCase()
+          .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-z0-9]+/g, '-')
+          .replace(/^-|-$/g, '') || 'acc'
+        const suffix = acc.id.replace('act_', '').slice(-8)
+        const slug = `${base}-${suffix}`
+        try {
+          upsert.run(acc.id, slug, acc.name, acc.id)
+        } catch (e) {
+          console.error('[upsertFromMeta] Failed for', acc.id, e)
+        }
       }
     })
     tx()
