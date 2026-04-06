@@ -30,6 +30,7 @@ export default function IndividualPage({ params }: PageProps) {
   const [error, setError]     = useState('')
   const [loading, setLoading] = useState(true)
   const [elapsedMs, setElapsedMs] = useState(0)
+  const [resolvedName, setResolvedName] = useState('')
 
   useEffect(() => { loadData() }, [accountId, period])
 
@@ -45,15 +46,21 @@ export default function IndividualPage({ params }: PageProps) {
       clearInterval(timer); setLoading(false); return
     }
 
+    // Resolve slug → real Meta account ID (act_XXXXXXXXX)
+    const cfgAccounts: Array<{ id: string; slug: string; name: string }> = cfg.accounts || []
+    const matched = cfgAccounts.find(a => a.slug === accountId)
+    const metaId = matched?.id || accountId // fallback: param might already be an act_ ID
+    if (matched?.name) setResolvedName(matched.name)
+
     const base = `spend,impressions,clicks,reach,frequency,actions,cost_per_action_type`
 
     try {
       const [acctRes, overviewRes, campaignRes, adsetRes, adRes] = await Promise.all([
-        fetch(`/api/meta/${accountId}?fields=id,name,account_status,currency,timezone_name,business,amount_spent`).then(r => r.json()),
-        fetch(`/api/meta/${accountId}/insights?fields=${base}&level=account&date_preset=${period}`).then(r => r.json()),
-        fetch(`/api/meta/${accountId}/insights?fields=campaign_id,campaign_name,status,effective_status,objective,${base}&level=campaign&limit=200&date_preset=${period}`).then(r => r.json()),
-        fetch(`/api/meta/${accountId}/insights?fields=adset_id,adset_name,campaign_id,campaign_name,status,effective_status,${base}&level=adset&limit=200&date_preset=${period}`).then(r => r.json()),
-        fetch(`/api/meta/${accountId}/insights?fields=ad_id,ad_name,adset_id,campaign_id,status,effective_status,${base}&level=ad&limit=500&date_preset=${period}`).then(r => r.json()),
+        fetch(`/api/meta/${metaId}?fields=id,name,account_status,currency,timezone_name,business,amount_spent`).then(r => r.json()),
+        fetch(`/api/meta/${metaId}/insights?fields=${base}&level=account&date_preset=${period}`).then(r => r.json()),
+        fetch(`/api/meta/${metaId}/insights?fields=campaign_id,campaign_name,status,effective_status,objective,${base}&level=campaign&limit=200&date_preset=${period}`).then(r => r.json()),
+        fetch(`/api/meta/${metaId}/insights?fields=adset_id,adset_name,campaign_id,campaign_name,status,effective_status,${base}&level=adset&limit=200&date_preset=${period}`).then(r => r.json()),
+        fetch(`/api/meta/${metaId}/insights?fields=ad_id,ad_name,adset_id,campaign_id,status,effective_status,${base}&level=ad&limit=500&date_preset=${period}`).then(r => r.json()),
       ])
 
       clearInterval(timer)
@@ -148,7 +155,7 @@ export default function IndividualPage({ params }: PageProps) {
 
   const fmt  = formatCurrency
   const fmtN = (n: number) => formatNumber(n, 0)
-  const accountName = account?.name || accountId.replace('ou-', '').replace(/-/g, ' ')
+  const accountName = account?.name || resolvedName || accountId.replace(/-/g, ' ')
 
   const StatusBadge = ({ status }: { status: string }) => {
     const s = STATUS_MAP[status] || { label: status, color: 'var(--muted)' }
