@@ -7,6 +7,36 @@ export async function GET(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const config = configRepo.get(user.userId)
+
+  // Auto-sync: if Meta accounts are configured but missing from the SQLite accounts table
+  // (happens on every Vercel cold start since SQLite is ephemeral), fetch from Meta API
+  if (config.meta_token && config.meta_account_ids.length > 0) {
+    const existingAccounts = accountRepo.list()
+    const existingMetaIds = new Set(
+      existingAccounts.map(a => a.meta_account_id).filter(Boolean)
+    )
+    const hasMissing = config.meta_account_ids.some(id => !existingMetaIds.has(id))
+
+    if (hasMissing) {
+      try {
+        const res = await fetch(
+          `https://graph.facebook.com/v19.0/me/adaccounts?fields=id,name&limit=200&access_token=${config.meta_token}`
+        )
+        const data = await res.json()
+        if (data.data && Array.isArray(data.data)) {
+          const allowedIds = new Set(config.meta_account_ids)
+          const toSync = (data.data as Array<{ id: string; name: string }>)
+            .filter(a => allowedIds.has(a.id))
+          if (toSync.length > 0) {
+            accountRepo.upsertFromMeta(toSync)
+          }
+        }
+      } catch (e) {
+        console.error('[user-config] Auto-sync accounts failed:', e)
+      }
+    }
+  }
+
   const accounts = accountRepo.list()
 
   return NextResponse.json({
