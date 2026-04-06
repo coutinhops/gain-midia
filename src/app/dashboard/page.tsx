@@ -65,10 +65,18 @@ export default function DashboardPage() {
       let totalSpend = 0, totalImpressions = 0, totalClicks = 0, totalReach = 0, totalLeads = 0
       const accountResults: AccountRank[] = []
 
-      for (const accountId of accountIds) {
-        const res = await fetch(`/api/meta/${accountId}/insights?fields=${fields}&level=account&limit=1&date_preset=${period}`)
-        const data = await res.json()
-        if (data.data?.[0]) {
+      const insightResults = await Promise.all(
+        accountIds.map((accountId: string) =>
+          fetch(`/api/meta/${accountId}/insights?fields=${fields}&level=account&limit=1&date_preset=${period}`)
+            .then(r => r.json())
+            .catch(() => null)
+        )
+      )
+
+      for (let i = 0; i < accountIds.length; i++) {
+        const data = insightResults[i]
+        const accountId = accountIds[i]
+        if (data?.data?.[0]) {
           const d = data.data[0]
           const spend = parseFloat(d.spend || '0')
           const impressions = parseInt(d.impressions || '0')
