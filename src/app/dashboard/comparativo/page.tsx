@@ -33,10 +33,17 @@ export default function ComparativoPage() {
   const [loading, setLoading]             = useState(false)
   const [error, setError]                 = useState('')
 
-  // Load account list once
+  // Load account list once — auto-discover from Meta API if cfg.accounts is empty
   useEffect(() => {
-    fetch('/api/user-config').then(r => r.json()).then(cfg => {
-      const accts = cfg.accounts || []
+    fetch('/api/user-config').then(r => r.json()).then(async cfg => {
+      let accts: Array<{id: string; name: string}> = cfg.accounts || []
+      if (accts.length === 0) {
+        try {
+          const adData = await fetch('/api/meta/me/adaccounts?fields=id,name&limit=500').then(r => r.json())
+          if (adData?.data?.length > 0) accts = adData.data.map((a: any) => ({ id: a.id, name: a.name }))
+          else accts = (cfg.meta_account_ids || []).map((id: string) => ({ id, name: id }))
+        } catch { accts = (cfg.meta_account_ids || []).map((id: string) => ({ id, name: id })) }
+      }
       setAccountList(accts)
     })
   }, [])
@@ -51,9 +58,17 @@ export default function ComparativoPage() {
       setLoading(false); return
     }
 
+    let cfgAccounts: Array<{id: string; name: string}> = cfg.accounts || []
+    if (cfgAccounts.length === 0) {
+      try {
+        const adData = await fetch('/api/meta/me/adaccounts?fields=id,name&limit=500').then(r => r.json())
+        if (adData?.data?.length > 0) cfgAccounts = adData.data.map((a: any) => ({ id: a.id, name: a.name }))
+        else cfgAccounts = (cfg.meta_account_ids || []).map((id: string) => ({ id, name: id }))
+      } catch { cfgAccounts = (cfg.meta_account_ids || []).map((id: string) => ({ id, name: id })) }
+    }
     const ids = selectedAccount
       ? [selectedAccount]
-      : (cfg.meta_account_ids || [])
+      : cfgAccounts.map((a: {id: string}) => a.id)
 
     const insFields = 'spend,impressions,clicks,reach,frequency,actions,cost_per_action_type'
 
