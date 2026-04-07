@@ -33,9 +33,25 @@ export default function RedePage() {
     const geoFields = 'spend,impressions,clicks,reach,actions'
 
     try {
+      // Get all accounts — prefer cfg.accounts (seeded from env var),
+      // fall back to auto-discovery via Meta API if table is empty.
+      let cfgAccounts: Array<{id: string; name: string}> = cfg.accounts || []
+      if (cfgAccounts.length === 0) {
+        try {
+          const adData = await fetch('/api/meta/me/adaccounts?fields=id,name&limit=500').then(r => r.json())
+          if (adData?.data?.length > 0) {
+            cfgAccounts = adData.data.map((a: any) => ({ id: a.id, name: a.name }))
+          } else {
+            cfgAccounts = (cfg.meta_account_ids || []).map((id: string) => ({ id, name: id }))
+          }
+        } catch {
+          cfgAccounts = (cfg.meta_account_ids || []).map((id: string) => ({ id, name: id }))
+        }
+      }
+
       // Parallel fetch all accounts
-      const fetches = (cfg.meta_account_ids || []).map(async (id: string) => {
-        const acct = cfg.accounts?.find((a: any) => a.id === id) || { id, name: id }
+      const fetches = cfgAccounts.map(async (acct: {id: string; name: string}) => {
+        const id = acct.id
         const [insRes] = await Promise.all([
           fetch(`/api/meta/${id}/insights?fields=${fields}&level=account&date_preset=${period}`).then(r => r.json()),
         ])
@@ -53,7 +69,7 @@ export default function RedePage() {
       const results = await Promise.all(fetches)
       // Sort by spend descending, top 8
       const sorted = results.sort((a, b) => b.spend - a.spend).slice(0, 8)
-      setAccounts(cfg.accounts || [])
+      setAccounts(cfgAccounts)
       setRows(sorted)
     } catch (e: any) {
       setError(e.message || 'Erro ao carregar dados da rede.')
