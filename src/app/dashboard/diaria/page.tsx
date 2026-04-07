@@ -29,8 +29,16 @@ export default function DiariaPage() {
   const startRef = useRef<number>(0)
 
   useEffect(() => {
-    fetch('/api/user-config').then(r => r.json()).then(cfg => {
-      setAccounts(cfg.accounts || [])
+    fetch('/api/user-config').then(r => r.json()).then(async cfg => {
+      let accts: Array<{id: string; name: string}> = cfg.accounts || []
+      if (accts.length === 0) {
+        try {
+          const adData = await fetch('/api/meta/me/adaccounts?fields=id,name&limit=500').then(r => r.json())
+          if (adData?.data?.length > 0) accts = adData.data.map((a: any) => ({ id: a.id, name: a.name }))
+          else accts = (cfg.meta_account_ids || []).map((id: string) => ({ id, name: id }))
+        } catch { accts = (cfg.meta_account_ids || []).map((id: string) => ({ id, name: id })) }
+      }
+      setAccounts(accts)
     })
   }, [])
 
@@ -51,9 +59,17 @@ export default function DiariaPage() {
     const fields = 'date_start,spend,impressions,clicks,reach,frequency,actions,cost_per_action_type'
 
     try {
-      const ids = view === 'all' ? (cfg.meta_account_ids || []) : [view]
+      let cfgAccounts: Array<{id: string; name: string}> = cfg.accounts || []
+      if (cfgAccounts.length === 0) {
+        try {
+          const adData = await fetch('/api/meta/me/adaccounts?fields=id,name&limit=500').then(r => r.json())
+          if (adData?.data?.length > 0) cfgAccounts = adData.data.map((a: any) => ({ id: a.id, name: a.name }))
+          else cfgAccounts = (cfg.meta_account_ids || []).map((id: string) => ({ id, name: id }))
+        } catch { cfgAccounts = (cfg.meta_account_ids || []).map((id: string) => ({ id, name: id })) }
+      }
       const acctMap: Record<string, string> = {}
-      ;(cfg.accounts || []).forEach((a: any) => { acctMap[a.id] = a.name || a.id })
+      cfgAccounts.forEach((a: {id: string; name: string}) => { acctMap[a.id] = a.name || a.id })
+      const ids = view === 'all' ? cfgAccounts.map((a: {id: string}) => a.id) : [view]
 
       const allData: Record<string, any> = {}
       const lineNames: string[] = []
