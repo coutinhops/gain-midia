@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import PeriodFilter from '@/components/PeriodFilter'
 import ErrorCard from '@/components/ErrorCard'
+import { countLeads } from '@/lib/meta'
 
 export default function ContasPage() {
   const [period, setPeriod] = useState('last_7d')
@@ -9,6 +10,7 @@ export default function ContasPage() {
   const [data, setData] = useState<any[]>([])
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
+  const [totalAccounts, setTotalAccounts] = useState(0)
 
   useEffect(() => { fetch('/api/auth/me').then(r => r.json()).then(setUser) }, [])
   useEffect(() => { loadData() }, [period])
@@ -18,14 +20,35 @@ export default function ContasPage() {
     const cfg = await fetch('/api/user-config').then(r => r.json())
     if (!cfg.meta_token) { setError('Token Meta não configurado em Configurações.'); setLoading(false); return }
 
-    const fields = 'account_id,account_name,campaign_id,campaign_name,objective,spend,impressions,clicks,ctr,cpm,cpc,reach,frequency,actions,cost_per_action_type'
-    const results: any[] = []
-    for (const id of (cfg.meta_account_ids || [])) {
-      const res = await fetch(`/api/meta/${id}/insights?fields=${fields}&level=campaign&limit=200&date_preset=${period}`)
-      const json = await res.json()
-      results.push(...(json.data || []))
+    // Get all accounts — prefer cfg.accounts, auto-discover if empty
+    let cfgAccounts: Array<{id: string; name: string}> = cfg.accounts || []
+    if (cfgAccounts.length === 0) {
+      try {
+        const adData = await fetch('/api/meta/me/adaccounts?fields=id,name&limit=500').then(r => r.json())
+        if (adData?.data?.length > 0) cfgAccounts = adData.data.map((a: any) => ({ id: a.id, name: a.name }))
+        else cfgAccounts = (cfg.meta_account_ids || []).map((id: string) => ({ id, name: id }))
+      } catch { cfgAccounts = (cfg.meta_account_ids || []).map((id: string) => ({ id, name: id })) }
     }
-    setData(results)
+    setTotalAccounts(cfgAccounts.length)
+
+    const fields = 'account_id,account_name,campaign_id,campaign_name,objective,spend,impressions,clicks,reach,frequency,actions,cost_per_action_type'
+
+    // Parallel fetch — one request per account
+    const allResults = await Promise.all(
+      cfgAccounts.map(async (acct: {id: string; name: string}) => {
+        try {
+          const json = await fetch(
+            `/api/meta/${acct.id}/insights?fields=${fields}&level=campaign&limit=200&date_preset=${period}`
+          ).then(r => r.json())
+          return (json.data || []).map((row: any) => ({
+            ...row,
+            account_name: row.account_name || acct.name,
+            _leads: countLeads(row.actions || []),
+          }))
+        } catch { return [] }
+      })
+    )
+    setData(allResults.flat())
     setLoading(false)
   }
 
@@ -38,10 +61,15 @@ export default function ContasPage() {
     { key: 'spend', label: 'Investimento', render: (v: string) => fmt(parseFloat(v || '0')) },
     { key: 'impressions', label: 'Impressões', render: (v: string) => fmtN(parseInt(v || '0')) },
     { key: 'clicks', label: 'Cliques', render: (v: string) => fmtN(parseInt(v || '0')) },
-    { key: 'ctr', label: 'CTR', render: (v: string) => `${parseFloat(v || '0').toFixed(2)}%` },
-    { key: 'cpc', label: 'CPC', render: (v: string) => fmt(parseFloat(v || '0')) },
-    { key: 'cpm', label: 'CPM', render: (v: string) => fmt(parseFloat(v || '0')) },
+    { key: '_leads', label: 'Leads', render: (v: any) => fmtN(Number(v) || 0) },
+    { key: 'spend', label: 'CPL', render: (_v: string, row: any) => {
+        const leads = Number(row._leads) || 0
+        const spend = parseFloat(row.spend || '0')
+        return leads > 0 ? fmt(spend / leads) : '—'
+      }
+    },
     { key: 'reach', label: 'Alcance', render: (v: string) => fmtN(parseInt(v || '0')) },
+    { key: 'cpm', label: 'CPM', render: (v: string) => fmt(parseFloat(v || '0')) },
   ]
 
   return (
@@ -83,7 +111,7 @@ export default function ContasPage() {
                       onMouseLeave={e => (e.currentTarget.style.background = '')}>
                     {cols.map(c => (
                       <td key={c.key} className="px-4 py-3" style={{ color: 'var(--text)' }}>
-                        {c.render ? c.render(row[c.key]) : row[c.key] || '-'}
+                        {c.render ? c.render(row[c.key], row) : row[c.key] || '-'}
                       </td>
                     ))}
                   </tr>
