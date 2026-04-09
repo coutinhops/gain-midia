@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import PeriodFilter from '@/components/PeriodFilter'
 import ErrorCard from '@/components/ErrorCard'
-import { countLeads } from '@/lib/meta'
+import { countLeads, countLeadForms, countConversations } from '@/lib/meta'
 
 export default function ContasPage() {
   const [period, setPeriod] = useState('last_7d')
@@ -44,6 +44,8 @@ export default function ContasPage() {
             ...row,
             account_name: row.account_name || acct.name,
             _leads: countLeads(row.actions || []),
+            _leadForms: countLeadForms(row.actions || []),
+            _conversations: countConversations(row.actions || []),
           }))
         } catch { return [] }
       })
@@ -61,9 +63,16 @@ export default function ContasPage() {
     { key: 'spend', label: 'Investimento', render: (v: string) => fmt(parseFloat(v || '0')) },
     { key: 'impressions', label: 'Impressões', render: (v: string) => fmtN(parseInt(v || '0')) },
     { key: 'clicks', label: 'Cliques', render: (v: string) => fmtN(parseInt(v || '0')) },
-    { key: '_leads', label: 'Leads', render: (v: any) => fmtN(Number(v) || 0) },
-    { key: 'spend', label: 'CPL', render: (_v: string, row: any) => {
-        const leads = Number(row._leads) || 0
+    { key: '_leadForms', label: 'Cadastros', render: (v: any) => fmtN(Number(v) || 0) },
+    { key: '_conversations', label: 'Conversas', render: (v: any) => fmtN(Number(v) || 0) },
+    { key: 'spend', label: 'CPL Cadastro', render: (_v: string, row: any) => {
+        const leads = Number(row._leadForms) || 0
+        const spend = parseFloat(row.spend || '0')
+        return leads > 0 ? fmt(spend / leads) : '—'
+      }
+    },
+    { key: 'spend', label: 'CPL Conversa', render: (_v: string, row: any) => {
+        const leads = Number(row._conversations) || 0
         const spend = parseFloat(row.spend || '0')
         return leads > 0 ? fmt(spend / leads) : '—'
       }
